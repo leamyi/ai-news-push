@@ -1,0 +1,238 @@
+{
+  "name": "每日AI新闻推送agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -112,
+        -32
+      ],
+      "id": "e44084cc-9d91-4639-9a94-51a715250f6c",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一个每日新闻推送助手，当前时间是 {{ $now.format(\"yyyy-MM-dd HH:mm\", \"Asia/Shanghai\") }}。严格按以下步骤执行：\n\n【第一步：查重】\n使用「多维表格搜索」工具，查询表中「日期」为 Today 的已有记录，记住已有标题，避免重复。\n\n【第二步：获取新闻】\n使用 HTTP 请求工具访问 https://60s.viki.moe/v2/60s ，从返回的 data.news 数组（当日10条要闻）中挑出 3~5 条与科技/AI/互联网最相关的。每条整理为：\n- 标题 = 原文\n- 发布日期 = 今天\n- 发布媒体 = \"每日60秒早报\"\n- 核心摘要 = 你对该条的一两句解读（80字内）\n- 链接 = 使用 HTTP 工具返回的 JSON 中 data.link 字段的值（即当日早报的微信文章链接，每条新闻都填这一个链接）\n\n\n【第三步：写入表格】\n使用「新增记录」工具，请求体JSON必须严格使用以下格式（每条新闻调用一次）：\n{\"fields\":{\"新闻标题\":\"标题\",\"链接\":{\"text\":\"点击查看详情\",\"link\":\"https://...\"},\"内容\":\"核心摘要\",\"日期\":<毫秒时间戳>,\"媒体\":\"每日60秒早报\"}}\n注意：链接字段的值是对象（text+link 两个键）；日期是毫秒级时间戳数字，不是字符串。\n\n\n【第四步：查日程】\n使用「日历查询」工具（日历 ID: primary，开始时间=今天零点，结束时间=7天后），获取我未来 7 天的日程。\n\n【输出】\n输出一段 Markdown（卡片消息用），格式如下，每条新闻间空一行：\n\n🚀 AI圈今日速递与【专属建议】\n✨ 今日AI新闻看板：\n\n- **标题：** xxx\n- **发布日期：** yyyy-MM-dd HH:mm\n- **发布媒体：** xx\n- **核心摘要：** …\n- **原文链接：** [点击查看详情](链接)\n\n最后加一段「📅 日程提醒」：列出未来7天日程；无日程则写\"今日无日程安排\"。\n只输出这段 Markdown 本身，不要输出其他解释。\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "e37f65ac-d7cc-4e84-bb51-10b7fe2c93af",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "deepseek-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        96,
+        240
+      ],
+      "id": "c7c6e3d0-e837-4076-b51f-d51882e3da96",
+      "name": "DeepSeek Chat Model"
+    },
+    {
+      "parameters": {
+        "resource": "bitable",
+        "operation": "bitable:table:record:search",
+        "app_toke": "<YOUR_BITABLE_APP_TOKEN>",
+        "table_id": "<YOUR_BITABLE_TABLE_ID>",
+        "body": "={\n  \"filter\": {\n    \"conjunction\": \"or\",\n    \"conditions\": [\n      {\n        \"field_name\": \"创建时间\",\n        \"operator\": \"is\",\n        \"value\": [\"Today\"]\n      },\n      {\n        \"field_name\": \"创建时间\",\n        \"operator\": \"is\",\n        \"value\": [\"Yesterday\"]\n      }\n    ]\n  }\n}"
+      },
+      "type": "n8n-nodes-feishu-lite.feishuNodeTool",
+      "typeVersion": 1,
+      "position": [
+        240,
+        336
+      ],
+      "id": "59929e9c-c1f1-418c-a413-744898aab0a3",
+      "name": "Bitable:table:record:search bitable in Feishu Node"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "operation": "calendar:listEvents",
+        "calendar_id": "primary",
+        "start_time": "={{ Math.floor((Math.floor(Date.now()/1000 + 28800) / 86400) * 86400 - 28800) }}\n",
+        "end_time": "={{ Math.floor((Math.floor(Date.now()/1000 + 28800) / 86400) * 86400 - 28800) + 604800 + 86399 }}\n"
+      },
+      "type": "n8n-nodes-feishu-lite.feishuNodeTool",
+      "typeVersion": 1,
+      "position": [
+        528,
+        368
+      ],
+      "id": "ca94ddb7-8231-4d1b-a72e-ec5e050f8bd1",
+      "name": "Calendar:listEvents calendar in Feishu Node"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.feishu.cn/open-apis/bot/v2/hook/<YOUR_FEISHU_WEBHOOK_TOKEN>",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  msg_type: \"interactive\",\n  card: {\n    config: { wide_screen_mode: true },\n    header: { template: \"blue\", title: { tag: \"plain_text\", content: \"🚀 AI新闻速递\" } },\n    elements: [\n      { tag: \"div\", text: { tag: \"lark_md\", content: $json.output } },\n      { tag: \"hr\" },\n      { tag: \"note\", elements: [{ tag: \"plain_text\", content: \"每日新闻 Agent 自动推送 · \" + new Date().toLocaleString(\"zh-CN\", {timeZone:\"Asia/Shanghai\"}) }] }\n    ]\n  }\n}) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        608,
+        0
+      ],
+      "id": "1302e665-a9bb-4c0f-9a0a-7d0de597603b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "https://60s.viki.moe/v2/60s",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        464
+      ],
+      "id": "9264333d-f6fa-4b84-bab3-4ae442b83682",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "resource": "bitable",
+        "operation": "bitable:table:record:add",
+        "app_toke": "<YOUR_BITABLE_APP_TOKEN>",
+        "table_id": "<YOUR_BITABLE_TABLE_ID>",
+        "body": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('___JSON', ``, 'json') }}"
+      },
+      "type": "n8n-nodes-feishu-lite.feishuNodeTool",
+      "typeVersion": 1,
+      "position": [
+        400,
+        208
+      ],
+      "id": "f622aca0-523b-4688-96b3-bbd6c64052f6",
+      "name": "Bitable:table:record:add bitable in Feishu Node"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitable:table:record:search bitable in Feishu Node": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar:listEvents calendar in Feishu Node": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitable:table:record:add bitable in Feishu Node": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8b90450e-d997-429d-8ecc-3eb5bfe34e5b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<YOUR_N8N_INSTANCE_ID>"
+  },
+  "nodeGroups": [],
+  "id": "l5woKYwWE3B6t6v7",
+  "tags": []
+}
